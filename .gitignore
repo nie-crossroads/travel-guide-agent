@@ -1,0 +1,27 @@
+# secrets
+TravelServer/.env
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+TravelServer/.venv/
+
+# data
+TravelServer/data/*.db
+TravelServer/data/*.db-shm
+TravelServer/data/*.db-wal
+TravelServer/data/*.sqlite
+TravelServer/data/*.sqlite-journal
+
+# node
+Travel/node_modules/
+Travel/dist/
+
+# editor
+.idea/
+.vscode/
+*.log
+.DS_Store
