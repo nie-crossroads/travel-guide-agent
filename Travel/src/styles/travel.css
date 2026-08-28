@@ -38,6 +38,7 @@ body,
 #app {
   margin: 0;
   height: 100%;
+  max-height: 100%;
   overflow: hidden;
 }
 
@@ -51,8 +52,8 @@ body {
 .app-shell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
+  max-height: 100%;
   overflow: hidden;
 }
 
@@ -111,12 +112,20 @@ body {
 }
 
 .session-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
   border: 1px solid transparent;
   border-radius: 8px;
-  padding: 9px 10px;
+  padding: 9px 6px 9px 10px;
   cursor: pointer;
   color: #c9c9c9;
   transition: background 0.15s ease;
+}
+
+.session-item-main {
+  min-width: 0;
+  flex: 1;
 }
 
 .session-item:hover {
@@ -142,6 +151,20 @@ body {
   margin-top: 4px;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+.session-delete {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  opacity: 0;
+  --el-button-text-color: var(--text-muted);
+  --el-button-hover-text-color: #ff8a8a;
+  --el-button-hover-bg-color: transparent;
+}
+
+.session-item:hover .session-delete,
+.session-delete:focus-visible {
+  opacity: 1;
 }
 
 .chat-panel {
@@ -189,11 +212,22 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
-  padding: 20px 24px 12px;
+  padding: 20px 24px 28px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  scrollbar-gutter: stable;
+}
+
+.messages > * {
+  flex-shrink: 0;
+}
+
+.messages-end {
+  height: 12px;
+  flex: 0 0 12px;
 }
 
 .bubble-row {

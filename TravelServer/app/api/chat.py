@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.db import create_session, get_session, list_sessions, touch_session
+from app.db import create_session, delete_session, get_session, list_sessions, touch_session
 from app.graph.agent import get_graph
 from app.graph.memory import ThinkFilter, strip_think
 
@@ -96,6 +96,20 @@ def get_chat_sessions() -> dict[str, Any]:
     return {"sessions": list_sessions()}
 
 
+@router.delete("/sessions/{session_id}")
+async def delete_chat_session(session_id: str) -> dict[str, Any]:
+    """删掉会话行，并清掉 LangGraph 里同 thread 的检查点，避免幽灵记忆。"""
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    graph = get_graph()
+    checkpointer = getattr(graph, "checkpointer", None)
+    if checkpointer is not None:
+        await checkpointer.adelete_thread(session_id)
+    delete_session(session_id)
+    return {"ok": True, "id": session_id}
+
+
 @router.get("/sessions/{session_id}")
 async def get_chat_session(session_id: str) -> dict[str, Any]:
     session = get_session(session_id)
@@ -145,7 +159,7 @@ def _sse(payload: dict[str, Any]) -> str:
 
 
 async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
-    """跑完整张图：专项 Agent 推 progress，compose 节点推 token。"""
+    """按需跑图：专项 Agent 推 progress，compose 节点推 token。"""
     graph = get_graph()
     config = _thread_config(session_id)
     compressed = False
@@ -155,7 +169,9 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
     progress_labels = {
         "preference": "偏好 Agent：整理出行约束…",
         "destination": "目的地 Agent：评估候选城市…",
-        "parallel_search": "航班 / 酒店 / 活动 Agent 并行搜索…",
+        "weather": "天气 Agent：查询高德预报…",
+        "maps_route": "路线 Agent：规划市内出行…",
+        "parallel_search": "按需搜索航班 / 酒店 / 活动…",
         "budget": "预算 Agent：校验总花费…",
         "adjust": "超预算，启动渐进式降级…",
         "compose": "汇总 Agent：正在生成攻略…",

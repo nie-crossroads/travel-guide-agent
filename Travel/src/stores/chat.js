@@ -1,13 +1,14 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { createSession, getSessionMessages, listSessions, streamChat } from "@/api/chat";
+import { createSession, deleteSession, getSessionMessages, listSessions, streamChat } from "@/api/chat";
 
 const SUGGESTIONS = [
+  "成都明天天气怎么样",
+  "成都有哪些好玩的地方",
   "帮我规划 3 日京都行程",
   "亲子游海南怎么玩更轻松",
   "预算 5000 的川西自驾",
   "十月去新疆要注意什么",
-  "东京美食和购物怎么排",
 ];
 
 export const useChatStore = defineStore("chat", () => {
@@ -16,8 +17,8 @@ export const useChatStore = defineStore("chat", () => {
   const messages = ref([]);
   const summary = ref("");
   const tokenCount = ref(0);
-  const contextWindow = ref(5000);
-  const compressThreshold = ref(4000);
+  const contextWindow = ref(10000);
+  const compressThreshold = ref(8000);
   const loading = ref(false);
   const sending = ref(false);
   const agentProgress = ref("");
@@ -62,8 +63,20 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = data.messages || [];
     summary.value = data.summary || "";
     tokenCount.value = data.token_count || 0;
-    contextWindow.value = data.context_window || 5000;
-    compressThreshold.value = data.compress_threshold || 4000;
+    contextWindow.value = data.context_window || 10000;
+    compressThreshold.value = data.compress_threshold || 8000;
+  }
+
+  async function removeSession(sessionId) {
+    await deleteSession(sessionId);
+    const leftover = sessions.value.filter((item) => item.id !== sessionId);
+    sessions.value = leftover;
+    if (currentId.value !== sessionId) return;
+    if (leftover.length) {
+      await openSession(leftover[0].id);
+      return;
+    }
+    await newSession();
   }
 
   async function sendMessage(text) {
@@ -128,6 +141,7 @@ export const useChatStore = defineStore("chat", () => {
     bootstrap,
     newSession,
     openSession,
+    removeSession,
     sendMessage,
   };
 });

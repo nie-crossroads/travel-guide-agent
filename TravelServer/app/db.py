@@ -58,6 +58,14 @@ def list_sessions() -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def delete_session(session_id: str) -> bool:
+    """删除会话行；检查点里的 thread 由 API 层另行清理。"""
+    with _connect() as conn:
+        cursor = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
 def get_session(session_id: str) -> dict[str, Any] | None:
     with _connect() as conn:
         row = conn.execute(

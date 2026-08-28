@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     budget_max_rounds: int = 3
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175"
     data_dir: Path = ROOT_DIR / "data"
+    amap_mcp_url: str = "https://dashscope.aliyuncs.com/api/v1/mcps/amap-maps/mcp"
+    amap_mcp_key: str = ""
 
     @property
     def compress_threshold(self) -> int:

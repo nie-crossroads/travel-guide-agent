@@ -24,6 +24,10 @@ export function getSessionMessages(sessionId) {
   return fetch(`${BASE}/sessions/${sessionId}/messages`).then(parseJson);
 }
 
+export function deleteSession(sessionId) {
+  return fetch(`${BASE}/sessions/${sessionId}`, { method: "DELETE" }).then(parseJson);
+}
+
 export async function streamChat(sessionId, message, handlers = {}) {
   // 按 SSE 块解析：token / compressed / done / error
   const response = await fetch(`${BASE}/chat`, {

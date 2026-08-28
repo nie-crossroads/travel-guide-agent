@@ -11,14 +11,18 @@ from langgraph.graph import END, START, StateGraph
 from app.config import settings
 from app.db import save_compressed_summary
 from app.graph.agents import (
+    next_adjust_step,
     next_adjustment,
     run_activity,
     run_budget,
     run_destination,
     run_flight,
     run_hotel,
+    run_maps_route,
     run_preference,
+    run_weather,
 )
+from app.graph.scope import needed_list, needed_set, needs_search
 from app.graph.llm import build_llm
 from app.graph.memory import (
     build_system_prompt,
@@ -57,14 +61,70 @@ def route_memory(state: AgentState) -> Literal["compress", "preference"]:
     return "preference"
 
 
-def route_intent(state: AgentState) -> Literal["destination", "compose"]:
-    if (state.get("intent") or "plan") == "chat":
-        return "compose"
-    return "destination"
+def route_after_preference(
+    state: AgentState,
+) -> Literal["destination", "parallel_search", "weather", "maps_route", "budget", "compose"]:
+    """Preference 之后按 needed_agents 走最小路径，不问的专项直接跳过。"""
+    needed = needed_set(state)
+    if "destination" in needed:
+        return "destination"
+    if needs_search(state):
+        return "parallel_search"
+    if "weather" in needed:
+        return "weather"
+    if "maps_route" in needed:
+        return "maps_route"
+    if "budget" in needed:
+        return "budget"
+    return "compose"
+
+
+def route_after_destination(
+    state: AgentState,
+) -> Literal["parallel_search", "weather", "maps_route", "budget", "compose"]:
+    if needs_search(state):
+        return "parallel_search"
+    if "weather" in needed_set(state):
+        return "weather"
+    if "maps_route" in needed_set(state):
+        return "maps_route"
+    if "budget" in needed_set(state):
+        return "budget"
+    return "compose"
+
+
+def route_after_search(
+    state: AgentState,
+) -> Literal["weather", "maps_route", "budget", "compose"]:
+    if "weather" in needed_set(state):
+        return "weather"
+    if "maps_route" in needed_set(state):
+        return "maps_route"
+    if "budget" in needed_set(state):
+        return "budget"
+    return "compose"
+
+
+def route_after_weather(
+    state: AgentState,
+) -> Literal["maps_route", "budget", "compose"]:
+    if "maps_route" in needed_set(state):
+        return "maps_route"
+    if "budget" in needed_set(state):
+        return "budget"
+    return "compose"
+
+
+def route_after_maps_route(state: AgentState) -> Literal["budget", "compose"]:
+    if "budget" in needed_set(state):
+        return "budget"
+    return "compose"
 
 
 def route_budget(state: AgentState) -> Literal["adjust", "compose"]:
-    """超预算且未满 3 轮则降级后重跑并行搜索，否则汇总输出。"""
+    """超预算且本轮跑过可降级专项、未满 3 轮时才重搜，否则汇总输出。"""
+    if "budget" not in needed_set(state):
+        return "compose"
     budget = state.get("budget") or {}
     if budget.get("within_budget"):
         return "compose"
@@ -72,6 +132,8 @@ def route_budget(state: AgentState) -> Literal["adjust", "compose"]:
         return "compose"
     limit = budget.get("limit") or 0
     if not limit:
+        return "compose"
+    if not next_adjust_step(state):
         return "compose"
     return "adjust"
 
@@ -139,16 +201,36 @@ async def destination_node(state: AgentState) -> dict:
     return await run_destination(state)
 
 
+async def weather_node(state: AgentState) -> dict:
+    return await run_weather(state)
+
+
+async def maps_route_node(state: AgentState) -> dict:
+    return await run_maps_route(state)
+
+
 async def parallel_search_node(state: AgentState) -> dict:
-    """航班 / 酒店 / 活动互不依赖，并行执行以降低等待时间。"""
+    """只跑本轮需要的航班 / 酒店 / 活动；互不依赖时并行以降低等待。"""
+    needed = needed_set(state)
+    jobs: list[tuple[str, object]] = []
+    mapping = (
+        ("flight", "flights", "航班", run_flight),
+        ("hotel", "hotels", "酒店", run_hotel),
+        ("activity", "activities", "活动", run_activity),
+    )
+    for agent, field, _label, runner in mapping:
+        if agent in needed:
+            jobs.append((field, runner(state)))
+    if not jobs:
+        return {"progress": ""}
+    names = [name for name, _coro in jobs]
     results = await asyncio.gather(
-        run_flight(state),
-        run_hotel(state),
-        run_activity(state),
+        *[coro for _name, coro in jobs],
         return_exceptions=True,
     )
-    names = ("flights", "hotels", "activities")
-    payload: dict = {"progress": "并行搜索：航班 / 酒店 / 活动已完成"}
+    labels = {"flights": "航班", "hotels": "酒店", "activities": "活动"}
+    done = " / ".join(labels[name] for name in names)
+    payload: dict = {"progress": f"专项搜索：{done}已完成"}
     for name, result in zip(names, results):
         if isinstance(result, Exception):
             payload[name] = {"total": 0, "note": str(result)}
@@ -166,34 +248,98 @@ def adjust_node(state: AgentState) -> dict:
 
 
 def _plan_context(state: AgentState) -> str:
-    blob = {
+    """只把本轮 needed_agents 的结果交给汇总，避免上一轮机票酒店漏进景点问答。"""
+    needed = needed_list(state)
+    blob: dict = {
+        "needed_agents": needed,
         "preferences": state.get("preferences") or {},
-        "destination": state.get("destination") or {},
-        "flights": state.get("flights") or {},
-        "hotels": state.get("hotels") or {},
-        "activities": state.get("activities") or {},
-        "budget": state.get("budget") or {},
-        "adjustment_round": state.get("adjustment_round") or 0,
     }
+    field_by_agent = {
+        "destination": "destination",
+        "flight": "flights",
+        "hotel": "hotels",
+        "activity": "activities",
+        "budget": "budget",
+        "weather": "weather",
+        "maps_route": "maps_route",
+    }
+    for agent, field in field_by_agent.items():
+        if agent in needed:
+            blob[field] = state.get(field) or {}
+    if "budget" in needed:
+        blob["adjustment_round"] = state.get("adjustment_round") or 0
     return json.dumps(blob, ensure_ascii=False, indent=2)
 
 
 def build_confirm_tail(state: AgentState) -> str:
-    """确认引导固定贴在回复最末尾，避免模型把追问插在正文中间。"""
+    """确认引导固定贴在回复最末尾；内容跟本轮问的专项对齐，不假装已经排好行程。"""
+    needed = needed_set(state)
     prefs = state.get("preferences") or {}
-    dest = (state.get("destination") or {}).get("city") or prefs.get("destination_hint") or "当前目的地"
+    dest = (
+        (state.get("destination") or {}).get("city")
+        or prefs.get("destination_hint")
+        or "这里"
+    )
+    missing = [str(item).strip() for item in (prefs.get("missing") or []) if str(item).strip()]
+    extra = f"\n另外请一并确认：{'、'.join(missing[:3])}。" if missing else ""
+    if not needed:
+        return (
+            "\n\n---\n\n## 请确认\n\n"
+            "如果还需要排行程、找住宿或查交通，直接告诉我。\n"
+        )
+    if needed <= {"weather"}:
+        return (
+            "\n\n---\n\n## 请确认\n\n"
+            f"以上是 **{dest}** 的天气，没有安排行程。{extra}\n\n"
+            "请直接回复：\n"
+            "- 「确认，知道了」\n"
+            "- 或告诉我还要推荐景点 / 排行程 / 查路线\n"
+        )
+    if needed <= {"maps_route"}:
+        return (
+            "\n\n---\n\n## 请确认\n\n"
+            f"以上是本轮路线，没有安排住宿和机票。{extra}\n\n"
+            "请直接回复：\n"
+            "- 「确认，按这条走」\n"
+            "- 或告诉我要改起点、终点或出行方式\n"
+        )
+    if needed <= {"destination"}:
+        return (
+            "\n\n---\n\n## 请确认\n\n"
+            f"以上是 **{dest}** 的推荐，没有安排行程、酒店和机票。{extra}\n\n"
+            "请直接回复：\n"
+            "- 「确认，就这些地方」\n"
+            "- 或告诉我还要排几天行程 / 找住宿 / 查交通\n"
+        )
+    offers = []
+    if "activity" not in needed:
+        offers.append("排几天行程")
+    if "hotel" not in needed:
+        offers.append("找住宿")
+    if "flight" not in needed:
+        offers.append("查交通")
+    if "weather" not in needed:
+        offers.append("查天气")
+    if "maps_route" not in needed:
+        offers.append("规划市内路线")
     days = prefs.get("days") or "未定"
     budget = prefs.get("budget") or 0
     budget_text = f"{int(budget)} 元" if budget else "预算未定"
-    missing = [str(item).strip() for item in (prefs.get("missing") or []) if str(item).strip()]
-    extra = f"\n另外请一并确认：{'、'.join(missing[:3])}。" if missing else ""
+    scope_bits = []
+    if "destination" in needed or dest != "这里":
+        scope_bits.append(str(dest))
+    if "activity" in needed:
+        scope_bits.append(f"{days} 天")
+    if "budget" in needed:
+        scope_bits.append(budget_text)
+    scope = " · ".join(scope_bits) if scope_bits else dest
+    more = f"\n也可以继续让我帮你{' / '.join(offers)}。" if offers else ""
     return (
         "\n\n---\n\n## 请确认\n\n"
-        f"以上按 **{dest} · {days} 天 · {budget_text}** 给出。"
-        f"{extra}\n\n"
+        f"以上按 **{scope}** 给出。{extra}{more}\n\n"
         "请直接回复：\n"
         "- 「确认，按这个走」\n"
-        "- 或告诉我要改哪一块（目的地 / 天数 / 预算 / 住宿 / 某一天行程）\n"
+        "- 或告诉我要改哪一块\n"
     )
 
 
@@ -209,9 +355,9 @@ def ensure_confirm_tail(text: str, state: AgentState) -> str:
 
 
 async def compose_node(state: AgentState) -> dict:
-    """汇总各 Agent 结果并流式写出 Markdown 攻略。"""
-    intent = state.get("intent") or "plan"
-    system = COMPOSE_CHAT_PROMPT if intent == "chat" else COMPOSE_PLAN_PROMPT
+    """按本轮 needed_agents 汇总；没跑专项时走闲聊提示，避免写成完整攻略。"""
+    needed = needed_list(state)
+    system = COMPOSE_CHAT_PROMPT if not needed else COMPOSE_PLAN_PROMPT
     system = (
         build_system_prompt(state.get("summary") or "")
         + "\n\n"
@@ -236,12 +382,14 @@ async def compose_node(state: AgentState) -> dict:
 
 
 def build_graph(checkpointer):
-    """记忆压缩后走 6 Agent：偏好→目的地→并行搜索→预算循环→汇总。"""
+    """压缩后先走 Preference，再按 needed_agents 按需进入目的地 / 搜索 / 预算 / 汇总。"""
     workflow = StateGraph(AgentState)
     workflow.add_node("compress", compress_node)
     workflow.add_node("persist_summary", persist_summary)
     workflow.add_node("preference", preference_node)
     workflow.add_node("destination", destination_node)
+    workflow.add_node("weather", weather_node)
+    workflow.add_node("maps_route", maps_route_node)
     workflow.add_node("parallel_search", parallel_search_node)
     workflow.add_node("budget", budget_node)
     workflow.add_node("adjust", adjust_node)
@@ -255,11 +403,51 @@ def build_graph(checkpointer):
     workflow.add_edge("persist_summary", "preference")
     workflow.add_conditional_edges(
         "preference",
-        route_intent,
-        {"destination": "destination", "compose": "compose"},
+        route_after_preference,
+        {
+            "destination": "destination",
+            "parallel_search": "parallel_search",
+            "weather": "weather",
+            "maps_route": "maps_route",
+            "budget": "budget",
+            "compose": "compose",
+        },
     )
-    workflow.add_edge("destination", "parallel_search")
-    workflow.add_edge("parallel_search", "budget")
+    workflow.add_conditional_edges(
+        "destination",
+        route_after_destination,
+        {
+            "parallel_search": "parallel_search",
+            "weather": "weather",
+            "maps_route": "maps_route",
+            "budget": "budget",
+            "compose": "compose",
+        },
+    )
+    workflow.add_conditional_edges(
+        "parallel_search",
+        route_after_search,
+        {
+            "weather": "weather",
+            "maps_route": "maps_route",
+            "budget": "budget",
+            "compose": "compose",
+        },
+    )
+    workflow.add_conditional_edges(
+        "weather",
+        route_after_weather,
+        {
+            "maps_route": "maps_route",
+            "budget": "budget",
+            "compose": "compose",
+        },
+    )
+    workflow.add_conditional_edges(
+        "maps_route",
+        route_after_maps_route,
+        {"budget": "budget", "compose": "compose"},
+    )
     workflow.add_conditional_edges(
         "budget",
         route_budget,

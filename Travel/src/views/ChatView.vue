@@ -21,8 +21,18 @@
           :class="{ active: item.id === store.currentId }"
           @click="store.openSession(item.id)"
         >
-          <h3>{{ item.title }}</h3>
-          <span>{{ formatTime(item.updated_at) }} · {{ item.token_count || 0 }} tokens</span>
+          <div class="session-item-main">
+            <h3>{{ item.title }}</h3>
+            <span>{{ formatTime(item.updated_at) }} · {{ item.token_count || 0 }} tokens</span>
+          </div>
+          <el-button
+            class="session-delete"
+            text
+            circle
+            :icon="Delete"
+            title="清除会话"
+            @click.stop="onDeleteSession(item)"
+          />
         </div>
       </div>
     </aside>
@@ -31,7 +41,7 @@
       <header class="chat-header">
         <div>
           <h2>出发吧 · 旅行顾问</h2>
-          <p>六位 Agent 协作：偏好、目的地、航班、酒店、活动、预算。</p>
+          <p>按你的问题按需调用 Agent：问景点就推荐地方，完整攻略才会排行程和住宿。</p>
         </div>
         <div class="token-meter">
           <div class="hint" style="margin-top: 0; margin-bottom: 6px">
@@ -55,7 +65,7 @@
 
         <div v-if="!store.messages.length" class="empty-hero">
           <h3>有什么可以帮你规划的？</h3>
-          <p>六位 Agent 协作规划：偏好、目的地，再并行搜航班/酒店/活动，最后做预算校验。</p>
+          <p>先问你想了解什么；只有完整规划才会并行搜航班、酒店和活动。</p>
           <div class="chips">
             <el-button
               v-for="item in store.SUGGESTIONS"
@@ -86,6 +96,7 @@
             </template>
           </div>
         </div>
+        <div class="messages-end" aria-hidden="true" />
       </div>
 
       <footer class="composer">
@@ -116,8 +127,8 @@
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
-import { Plus, Promotion } from "@element-plus/icons-vue";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { Delete, Plus, Promotion } from "@element-plus/icons-vue";
 import { useChatStore } from "@/stores/chat";
 import { renderMarkdown } from "@/utils/markdown";
 
@@ -155,7 +166,7 @@ async function scrollToBottom(force = false) {
 }
 
 const tokenPercent = computed(() => {
-  // 进度条按 5000 窗口计算；≥80% 表示即将触发压缩
+  // 进度条按当前窗口计算；≥80% 表示即将触发压缩
   if (!store.contextWindow) return 0;
   return Math.min(100, Math.round((store.tokenCount / store.contextWindow) * 100));
 });
@@ -183,6 +194,29 @@ async function onNewSession() {
   await store.newSession();
   draft.value = "";
   await scrollToBottom(true);
+}
+
+async function onDeleteSession(item) {
+  try {
+    await ElMessageBox.confirm(`确定清除「${item.title}」？清除后无法恢复。`, "清除会话", {
+      type: "warning",
+      confirmButtonText: "清除",
+      cancelButtonText: "取消",
+    });
+  } catch {
+    return;
+  }
+  try {
+    const wasCurrent = item.id === store.currentId;
+    await store.removeSession(item.id);
+    if (wasCurrent) {
+      stickToBottom.value = true;
+      draft.value = "";
+      await scrollToBottom(true);
+    }
+  } catch (error) {
+    ElMessage.error(error.message || "清除失败");
+  }
 }
 
 async function onSend(text) {

@@ -97,7 +97,7 @@ def remaining_tokens(state: AgentState) -> int:
 
 
 def should_compress(state: AgentState) -> bool:
-    """窗口剩余不足 20%（默认已用 ≥ 4000）且还有可压缩的旧消息时触发。"""
+    """窗口剩余不足 20%（10000 窗口时已用 ≥ 8000）且还有可压缩的旧消息时触发。"""
     used = count_state_tokens(state)
     remaining = settings.context_window - used
     if remaining <= int(settings.context_window * settings.compress_remaining_ratio):
