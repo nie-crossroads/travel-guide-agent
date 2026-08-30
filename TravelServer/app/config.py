@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     data_dir: Path = ROOT_DIR / "data"
     amap_mcp_url: str = "https://dashscope.aliyuncs.com/api/v1/mcps/amap-maps/mcp"
     amap_mcp_key: str = ""
+    web_search_mcp_url: str = "https://dashscope.aliyuncs.com/api/v1/mcps/WebSearch/mcp"
+    web_search_mcp_key: str = ""
+
+    @property
+    def web_search_key(self) -> str:
+        """联网搜索与高德同属百炼，未单独配 Key 时复用 AMAP_MCP_KEY。"""
+        return (self.web_search_mcp_key or self.amap_mcp_key or "").strip()
 
     @property
     def compress_threshold(self) -> int:

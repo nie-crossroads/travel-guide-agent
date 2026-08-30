@@ -22,6 +22,7 @@ COMPOSE_PLAN_PROMPT = """你是「出发吧」旅行顾问的汇总 Agent。need
 - 有 activity 才写逐日行程；有 flight / hotel / budget 才写对应章节
 - 有 weather：按 JSON 里的高德预报写天气，不要编造气温
 - 有 maps_route：按 JSON 里的高德路线写市内怎么走，不要改成机票方案
+- 有 web_search：按 JSON 里的联网检索 pages 写最新资讯，列出标题和来源，不要编造未出现的新闻
 - 数字以 JSON 为准，不要重新编造总价
 - 正文只写答案，不要在中间穿插「请确认」「还缺什么」之类的追问
 - 全文最后单独一节「请确认」（代码还会再统一追加一次）

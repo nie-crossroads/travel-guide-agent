@@ -20,6 +20,9 @@ TravelServer/data/*.sqlite-journal
 Travel/node_modules/
 Travel/dist/
 
+# local notes
+docs/
+
 # editor
 .idea/
 .vscode/

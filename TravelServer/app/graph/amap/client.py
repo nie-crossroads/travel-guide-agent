@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator
 
 from app.config import settings
 from app.graph.amap.catalog import tools_for_categories
+from app.graph.trace import span
 
 
 class AmapMcpError(RuntimeError):
@@ -93,9 +94,10 @@ async def open_amap_session() -> AsyncIterator[Any]:
 
 async def call_amap_tool(name: str, arguments: dict[str, Any] | None = None) -> Any:
     """单次开关会话调用一个工具；类别校验在上层做，避免误调未授权专项。"""
-    async with open_amap_session() as session:
-        result = await session.call_tool(name, arguments or {})
-        return _parse_tool_payload(result)
+    async with span("tool", name):
+        async with open_amap_session() as session:
+            result = await session.call_tool(name, arguments or {})
+            return _parse_tool_payload(result)
 
 
 async def call_amap_category(

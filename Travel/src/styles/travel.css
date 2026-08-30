@@ -240,6 +240,62 @@ body {
   justify-content: flex-end;
 }
 
+.bubble-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(760px, 100%);
+}
+
+.bubble-row.user .bubble-col {
+  width: auto;
+  max-width: min(72%, 640px);
+  align-items: flex-end;
+}
+
+.trace-card {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.trace-head {
+  margin-bottom: 6px;
+  color: #cfcfcf;
+}
+
+.trace-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.trace-row.slow .trace-ms {
+  color: var(--accent);
+}
+
+.trace-kind {
+  color: #6f6f6f;
+}
+
+.trace-name {
+  color: #d0d0d0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-ms {
+  font-variant-numeric: tabular-nums;
+  color: #a0a0a0;
+}
+
 .bubble {
   max-width: min(72%, 640px);
   padding: 10px 14px;

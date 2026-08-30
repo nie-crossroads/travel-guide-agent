@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.graph.agents.base import context_block, invoke_json
 from app.graph.jsonutil import as_number
 from app.graph.state import AgentState
+from app.graph.trace import traced
 
 SYSTEM = """你是 Activity Agent，按天排上午/下午/晚上的活动，控制时间和花费。
 只输出 JSON：
@@ -24,6 +25,7 @@ SYSTEM = """你是 Activity Agent，按天排上午/下午/晚上的活动，控
 """
 
 
+@traced("agent", "activity")
 async def run_activity(state: AgentState) -> dict:
     data = await invoke_json(SYSTEM, context_block(state))
     days = data.get("days") or []

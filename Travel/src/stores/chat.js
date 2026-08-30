@@ -9,6 +9,7 @@ const SUGGESTIONS = [
   "亲子游海南怎么玩更轻松",
   "预算 5000 的川西自驾",
   "十月去新疆要注意什么",
+  "搜一下成都最近有什么展会",
 ];
 
 export const useChatStore = defineStore("chat", () => {
@@ -101,6 +102,15 @@ export const useChatStore = defineStore("chat", () => {
         onProgress(payload) {
           agentProgress.value = payload.message || agentProgress.value;
         },
+        onTrace(span) {
+          const last = messages.value[messages.value.length - 1];
+          if (!last || last.role !== "assistant") return;
+          const next = [...(last.traceSpans || [])];
+          const idx = next.findIndex((item) => item.id === span.id);
+          if (idx >= 0) next[idx] = span;
+          else next.push(span);
+          messages.value[messages.value.length - 1] = { ...last, traceSpans: next };
+        },
         onCompressed(payload) {
           summary.value = payload.summary || summary.value;
           tokenCount.value = payload.token_count || tokenCount.value;
@@ -111,6 +121,14 @@ export const useChatStore = defineStore("chat", () => {
           contextWindow.value = payload.context_window || contextWindow.value;
           compressThreshold.value = payload.compress_threshold || compressThreshold.value;
           if (payload.summary) summary.value = payload.summary;
+          const last = messages.value[messages.value.length - 1];
+          if (last && last.role === "assistant" && payload.trace) {
+            messages.value[messages.value.length - 1] = {
+              ...last,
+              traceSpans: payload.trace.spans || last.traceSpans || [],
+              traceTotal: payload.trace.total_ms,
+            };
+          }
         },
       });
       await refreshSessions();

@@ -4,6 +4,7 @@ from app.graph.agents.base import context_block, invoke_json
 from app.graph.amap.client import AmapMcpError, call_amap_category
 from app.graph.amap.parse import extract_pois
 from app.graph.state import AgentState
+from app.graph.trace import traced
 
 SYSTEM = """你是 Destination Agent，根据偏好推荐一个主目的地和两个备选。
 只输出 JSON：
@@ -22,6 +23,7 @@ poi_keywords 默认「景点」。
 """
 
 
+@traced("agent", "destination")
 async def run_destination(state: AgentState) -> dict:
     data = await invoke_json(SYSTEM, context_block(state))
     if not data.get("city"):

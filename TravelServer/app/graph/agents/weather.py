@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.graph.amap.client import AmapMcpError, call_amap_category
 from app.graph.amap.parse import extract_forecasts
 from app.graph.state import AgentState
+from app.graph.trace import traced
 
 
 def _city(state: AgentState) -> str:
@@ -11,6 +12,7 @@ def _city(state: AgentState) -> str:
     return str(dest.get("city") or prefs.get("destination_hint") or "").strip()
 
 
+@traced("agent", "weather")
 async def run_weather(state: AgentState) -> dict:
     """只调 weather 类别的 maps_weather，不顺手搜景点或路线。"""
     city = _city(state)

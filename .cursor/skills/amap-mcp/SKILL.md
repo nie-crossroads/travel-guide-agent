@@ -10,7 +10,7 @@ description: >-
 
 百炼托管：`https://dashscope.aliyuncs.com/api/v1/mcps/amap-maps/mcp`。`.env` 里 `AMAP_MCP_URL` + `AMAP_MCP_KEY`（百炼 DashScope Key）。**不要把全部工具一次性塞进模型**，按类别拆开，本轮需要才调。
 
-客户端：`TravelServer/app/graph/amap/`。分类表：`catalog.py`。
+客户端：`TravelServer/app/graph/amap/`。分类表：`catalog.py`。每次 `call_amap_tool` 记一条 `tool` span（见 [agent-trace](../agent-trace/SKILL.md)）。
 
 | 类别 | 工具 | 何时调用 |
 | --- | --- | --- |

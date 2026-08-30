@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.graph.agents.base import context_block, invoke_json
 from app.graph.scope import clamp_needed, latest_user_text, normalize_needed
 from app.graph.state import AgentState
+from app.graph.trace import traced
 
 SYSTEM = """你是 Preference Agent，只负责从对话里整理出行偏好，并判断本轮要调用哪些专项 Agent。
 只输出 JSON，不要 Markdown。字段：
@@ -21,10 +22,11 @@ SYSTEM = """你是 Preference Agent，只负责从对话里整理出行偏好，
   "missing": ["还缺的关键信息"]
 }
 
-needed_agents 只能从 destination / flight / hotel / activity / budget / weather / maps_route 中选，必须是本轮问题的最小集合：
+needed_agents 只能从 destination / flight / hotel / activity / budget / weather / maps_route / web_search 中选，必须是本轮问题的最小集合：
 - 「成都有哪些好玩的地方 / 推荐景点 / 必去打卡」→ ["destination"]，不要带 flight/hotel/activity/budget/weather
-- 「成都天气怎么样 / 会不会下雨 / 穿什么」→ ["weather"]，不要排行程
+- 「成都天气怎么样 / 会不会下雨 / 穿什么」→ ["weather"]，不要排行程，不要用 web_search
 - 「从宽窄巷子怎么去大熊猫基地 / 市内路线 / 导航 / 打车」→ ["maps_route"]
+- 「搜一下 / 最新政策 / 最近新闻 / 最近有什么展 / 还能去吗」→ ["web_search"]；若同时问景点可加 destination
 - 「三天怎么玩 / 排行程 / 逐日安排」→ ["destination", "activity"]
 - 「住哪 / 酒店推荐」→ ["destination", "hotel"]；目的地已确定则可只给 ["hotel"]
 - 「机票 / 航班」→ ["destination", "flight"]
@@ -40,6 +42,7 @@ intent=chat：追问、闲聊、解释已有方案，不跑专项。
 """
 
 
+@traced("agent", "preference")
 async def run_preference(state: AgentState) -> dict:
     data = await invoke_json(SYSTEM, context_block(state))
     previous = dict(state.get("preferences") or {})

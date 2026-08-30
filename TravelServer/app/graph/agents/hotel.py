@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.graph.agents.base import context_block, invoke_json
 from app.graph.jsonutil import as_number
 from app.graph.state import AgentState
+from app.graph.trace import traced
 
 SYSTEM = """你是 Hotel Agent，按旅行风格匹配住宿。
 只输出 JSON：
@@ -21,6 +22,7 @@ nights 默认 days-1。价格人民币。
 """
 
 
+@traced("agent", "hotel")
 async def run_hotel(state: AgentState) -> dict:
     prefs = state.get("preferences") or {}
     days = int(as_number(prefs.get("days"), 3))

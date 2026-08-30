@@ -85,15 +85,34 @@
           class="bubble-row"
           :class="item.role"
         >
-          <div class="bubble" :class="item.role">
-            <div
-              v-if="item.role === 'assistant' && item.content"
-              class="markdown-body"
-              v-html="renderMarkdown(item.content)"
-            />
-            <template v-else>
-              {{ item.content || (store.sending && index === store.messages.length - 1 ? (store.agentProgress || "正在思考…") : "") }}
-            </template>
+          <div class="bubble-col">
+            <div class="bubble" :class="item.role">
+              <div
+                v-if="item.role === 'assistant' && item.content"
+                class="markdown-body"
+                v-html="renderMarkdown(item.content)"
+              />
+              <template v-else>
+                {{ item.content || (store.sending && index === store.messages.length - 1 ? (store.agentProgress || "正在思考…") : "") }}
+              </template>
+            </div>
+            <div v-if="item.role === 'assistant' && item.traceSpans?.length" class="trace-card">
+              <div class="trace-head">
+                本轮耗时 {{ formatDuration(item.traceTotal || sumTrace(item.traceSpans)) }}
+                · 最慢 {{ slowestName(item.traceSpans) }}
+              </div>
+              <div
+                v-for="row in flattenTrace(item.traceSpans)"
+                :key="row.id"
+                class="trace-row"
+                :class="{ slow: row.slow, child: row.depth > 0 }"
+                :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
+              >
+                <span class="trace-kind">{{ kindLabel(row.kind) }}</span>
+                <span class="trace-name">{{ row.name }}</span>
+                <span class="trace-ms">{{ formatDuration(row.duration_ms) }}</span>
+              </div>
+            </div>
           </div>
         </div>
         <div class="messages-end" aria-hidden="true" />
@@ -177,6 +196,57 @@ const tokenColor = computed(() => {
   return "#6f6f6f";
 });
 
+const KIND_LABELS = { agent: "Agent", tool: "工具", llm: "模型" };
+
+function formatDuration(ms) {
+  const value = Number(ms) || 0;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}s`;
+  return `${Math.round(value)}ms`;
+}
+
+function kindLabel(kind) {
+  return KIND_LABELS[kind] || kind;
+}
+
+function sumTrace(spans) {
+  return (spans || [])
+    .filter((item) => !item.parent)
+    .reduce((sum, item) => sum + (Number(item.duration_ms) || 0), 0);
+}
+
+function flattenTrace(spans) {
+  // 按父子排成树，方便看出 Agent 内模型/工具各占多久
+  const list = spans || [];
+  const slowest = Math.max(0, ...list.map((item) => Number(item.duration_ms) || 0));
+  const byParent = new Map();
+  for (const item of list) {
+    const key = item.parent || "";
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(item);
+  }
+  const rows = [];
+  const walk = (parentId, depth) => {
+    for (const item of byParent.get(parentId) || []) {
+      rows.push({
+        ...item,
+        depth,
+        slow: slowest > 0 && Number(item.duration_ms) === slowest,
+      });
+      walk(item.id, depth + 1);
+    }
+  };
+  walk("", 0);
+  return rows;
+}
+
+function slowestName(spans) {
+  let best = null;
+  for (const item of spans || []) {
+    if (!best || Number(item.duration_ms) > Number(best.duration_ms)) best = item;
+  }
+  return best ? `${kindLabel(best.kind)} ${best.name}` : "—";
+}
+
 function formatTime(value) {
   if (!value) return "刚刚";
   const date = new Date(value);
@@ -236,7 +306,10 @@ async function onSend(text) {
 }
 
 watch(
-  () => [store.messages.map((item) => item.content).join(), store.agentProgress],
+  () => [
+    store.messages.map((item) => item.content + (item.traceSpans || []).length).join(),
+    store.agentProgress,
+  ],
   () => {
     scrollToBottom();
   }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from typing import Any, AsyncIterator
 
@@ -13,6 +14,7 @@ from app.config import settings
 from app.db import create_session, delete_session, get_session, list_sessions, touch_session
 from app.graph.agent import get_graph
 from app.graph.memory import ThinkFilter, strip_think
+from app.graph.trace import drain_spans, end_turn, log_turn, start_turn, turn_snapshot
 
 router = APIRouter()
 
@@ -158,10 +160,15 @@ def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _sse_traces() -> list[str]:
+    return [_sse({"type": "trace", "span": item}) for item in drain_spans()]
+
+
 async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
-    """按需跑图：专项 Agent 推 progress，compose 节点推 token。"""
+    """按需跑图：专项 Agent 推 progress，compose 节点推 token，并边跑边出耗时。"""
     graph = get_graph()
     config = _thread_config(session_id)
+    start_turn()
     compressed = False
     token_count = 0
     streamed = False
@@ -171,11 +178,15 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
         "destination": "目的地 Agent：评估候选城市…",
         "weather": "天气 Agent：查询高德预报…",
         "maps_route": "路线 Agent：规划市内出行…",
+        "web_search": "联网搜索：检索最新资讯…",
         "parallel_search": "按需搜索航班 / 酒店 / 活动…",
         "budget": "预算 Agent：校验总花费…",
         "adjust": "超预算，启动渐进式降级…",
         "compose": "汇总 Agent：正在生成攻略…",
     }
+    # contextvar 若没传到节点，用 LangGraph 事件补一层 Agent 进出耗时
+    node_started: dict[str, float] = {}
+    fallback_spans: list[dict[str, Any]] = []
 
     try:
         async for event in graph.astream_events(
@@ -185,8 +196,12 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
         ):
             kind = event.get("event")
             node = (event.get("metadata") or {}).get("langgraph_node")
+            run_id = str(event.get("run_id") or node or "")
             if kind == "on_chain_start" and node in progress_labels:
+                node_started[run_id] = time.perf_counter()
                 yield _sse({"type": "progress", "agent": node, "message": progress_labels[node]})
+            if kind == "on_chain_start" and node == "compress":
+                node_started[run_id] = time.perf_counter()
             if kind == "on_chat_model_stream" and node == "compose":
                 chunk = (event.get("data") or {}).get("chunk")
                 raw = _content_text(getattr(chunk, "content", None) if chunk is not None else None)
@@ -195,6 +210,19 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
                     streamed = True
                     yield _sse({"type": "token", "content": content})
             elif kind == "on_chain_end" and node == "compress":
+                started = node_started.pop(run_id, None)
+                if started is not None:
+                    fallback_spans.append(
+                        {
+                            "id": f"node-{run_id}",
+                            "kind": "agent",
+                            "name": "compress",
+                            "parent": None,
+                            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+                            "ok": True,
+                            "error": "",
+                        }
+                    )
                 output = (event.get("data") or {}).get("output") or {}
                 if isinstance(output, dict) and output.get("compressed"):
                     compressed = True
@@ -206,6 +234,19 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
                         }
                     )
             elif kind == "on_chain_end" and node in progress_labels:
+                started = node_started.pop(run_id, None)
+                if started is not None:
+                    fallback_spans.append(
+                        {
+                            "id": f"node-{run_id}",
+                            "kind": "agent",
+                            "name": node,
+                            "parent": None,
+                            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+                            "ok": True,
+                            "error": "",
+                        }
+                    )
                 output = (event.get("data") or {}).get("output") or {}
                 if isinstance(output, dict) and output.get("progress"):
                     yield _sse(
@@ -215,6 +256,8 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
                             "message": output["progress"],
                         }
                     )
+            for chunk in _sse_traces():
+                yield chunk
 
         state = await graph.aget_state(config)
         values = state.values if state and state.values else {}
@@ -245,6 +288,17 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
             if idx >= 0:
                 yield _sse({"type": "token", "content": last_text[idx:]})
 
+        for chunk in _sse_traces():
+            yield chunk
+        trace = turn_snapshot()
+        if not trace.get("spans") and fallback_spans:
+            trace = {
+                "total_ms": round(sum(item["duration_ms"] for item in fallback_spans), 1),
+                "spans": fallback_spans,
+            }
+            for item in fallback_spans:
+                yield _sse({"type": "trace", "span": item})
+        log_turn(trace)
         yield _sse(
             {
                 "type": "done",
@@ -253,7 +307,10 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
                 "summary": summary,
                 "context_window": settings.context_window,
                 "compress_threshold": settings.compress_threshold,
+                "trace": trace,
             }
         )
     except Exception as exc:
         yield _sse({"type": "error", "message": str(exc)})
+    finally:
+        end_turn()

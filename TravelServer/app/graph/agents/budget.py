@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.graph.jsonutil import as_number
 from app.graph.scope import needed_set
 from app.graph.state import AgentState
+from app.graph.trace import traced
 
 # 与参考项目一致：活动 → 酒店 → 航班，用户对活动降级感知最小
 ADJUST_STEPS = (
@@ -31,6 +32,7 @@ def next_adjust_step(state: AgentState) -> str | None:
     return None
 
 
+@traced("agent", "budget")
 def run_budget(state: AgentState) -> dict:
     """用本轮跑过的专项数字做硬校验，不把上一轮没问的机票酒店算进总价。"""
     prefs = state.get("preferences") or {}
@@ -68,6 +70,7 @@ def run_budget(state: AgentState) -> dict:
     }
 
 
+@traced("agent", "adjust")
 def next_adjustment(state: AgentState) -> dict:
     """渐进式降级：每轮只动一个开支维度，最多 3 轮。"""
     hint = next_adjust_step(state)

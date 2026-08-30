@@ -11,6 +11,7 @@ SPECIALISTS = (
     "budget",
     "weather",
     "maps_route",
+    "web_search",
 )
 SEARCH_AGENTS = ("flight", "hotel", "activity")
 
@@ -32,6 +33,22 @@ _WANTS_MORE = (
 )
 _WEATHER = ("天气", "气温", "下雨", "降雨", "穿什么", "预报", "冷不冷", "热不热", "伞")
 _ROUTE = ("怎么走", "路线", "导航", "打车", "地铁怎么", "公交怎么", "怎么过去")
+_WEB = (
+    "搜一下",
+    "搜索一下",
+    "联网搜",
+    "最新消息",
+    "最新政策",
+    "最近新闻",
+    "最近有什么",
+    "时事",
+    "热搜",
+    "资讯",
+    "还能去吗",
+    "还开放吗",
+    "签证政策",
+    "限行政策",
+)
 
 
 def latest_user_text(state: AgentState) -> str:
@@ -59,13 +76,16 @@ def clamp_needed(user_text: str, needed: list[str]) -> list[str]:
         return needed
     wants_weather = any(key in text for key in _WEATHER)
     wants_route = any(key in text for key in _ROUTE) and "机票" not in text and "航班" not in text
+    wants_web = any(key in text for key in _WEB)
     wants_place = any(key in text for key in _NARROW_PLACE)
     wants_more = any(key in text for key in _WANTS_MORE)
 
-    if wants_weather and not wants_place and not wants_more and not wants_route:
+    if wants_weather and not wants_place and not wants_more and not wants_route and not wants_web:
         return ["weather"]
-    if wants_route and not wants_place and not wants_weather:
+    if wants_route and not wants_place and not wants_weather and not wants_web:
         return ["maps_route"]
+    if wants_web and not wants_place and not wants_more and not wants_weather and not wants_route:
+        return ["web_search"]
     if wants_place and not wants_more:
         needed = ["destination"]
     else:
@@ -78,6 +98,8 @@ def clamp_needed(user_text: str, needed: list[str]) -> list[str]:
         extra.append("weather")
     if wants_route:
         extra.append("maps_route")
+    if wants_web:
+        extra.append("web_search")
     for item in extra:
         if item not in needed:
             needed.append(item)

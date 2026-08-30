@@ -6,6 +6,7 @@ from app.graph.jsonutil import parse_json_object
 from app.graph.llm import build_llm
 from app.graph.memory import message_text, strip_think
 from app.graph.state import AgentState
+from app.graph.trace import span
 
 _worker_llm = None
 
@@ -40,7 +41,8 @@ def context_block(state: AgentState) -> str:
 
 
 async def invoke_json(system: str, user: str) -> dict:
-    response = await worker_llm().ainvoke(
-        [SystemMessage(content=system), HumanMessage(content=user)]
-    )
+    async with span("llm", "invoke_json"):
+        response = await worker_llm().ainvoke(
+            [SystemMessage(content=system), HumanMessage(content=user)]
+        )
     return parse_json_object(strip_think(message_text(response)))

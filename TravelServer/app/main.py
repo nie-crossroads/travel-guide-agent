@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,6 +9,9 @@ from app.config import settings
 from app.db import init_db
 from app.graph.agent import build_graph, set_graph
 from app.graph.checkpoint import open_checkpointer
+
+
+logging.getLogger("travel.trace").setLevel(logging.INFO)
 
 
 @asynccontextmanager

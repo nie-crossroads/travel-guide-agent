@@ -10,7 +10,7 @@ class AgentState(TypedDict):
     token_count: NotRequired[int]
     compressed: NotRequired[bool]  # 本轮是否刚完成压缩，供 SSE 提示前端
     intent: NotRequired[str]  # plan | chat
-    needed_agents: NotRequired[list]  # destination/flight/hotel/activity/budget/weather/maps_route
+    needed_agents: NotRequired[list]  # destination/flight/hotel/activity/budget/weather/maps_route/web_search
     progress: NotRequired[str]
     preferences: NotRequired[dict]
     destination: NotRequired[dict]
@@ -20,5 +20,6 @@ class AgentState(TypedDict):
     budget: NotRequired[dict]
     weather: NotRequired[dict]
     maps_route: NotRequired[dict]
+    web_search: NotRequired[dict]
     adjustment_round: NotRequired[int]
     adjustment_hints: NotRequired[list]

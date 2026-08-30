@@ -39,10 +39,11 @@ Preference 先判断本轮 `needed_agents`，后面的专项按需执行，不�
 2. Destination：仅当需要推荐城市或景点时运行（内部可调高德 POI）
 3. Flight / Hotel / Activity：仅运行用户问到的专项，可并行
 4. Weather / 市内路线：仅当用户问天气或怎么走时调用高德 MCP
-5. Budget：仅完整规划或用户问预算时校验；超支则按活动 → 酒店 → 航班降级，最多 3 轮
-6. Compose：只汇总本轮跑过的结果；确认引导放在文末
+5. 联网搜索：仅当用户要最新资讯、政策或展会时调用百炼 WebSearch MCP
+6. Budget：仅完整规划或用户问预算时校验；超支则按活动 → 酒店 → 航班降级，最多 3 轮
+7. Compose：只汇总本轮跑过的结果；确认引导放在文末
 
-`.env` 中配置 `AMAP_MCP_URL` 与 `AMAP_MCP_KEY`（百炼 Key）。高德工具按 weather / poi / geocode / route / schema 分类，需要才调用。
+`.env` 中配置 `AMAP_MCP_URL` 与 `AMAP_MCP_KEY`（百炼 Key）。高德工具按 weather / poi / geocode / route / schema 分类，需要才调用。联网搜索 MCP 用 `WEB_SEARCH_MCP_URL`，Key 可复用同一把百炼 Key。
 
 ## 记忆策略
 

@@ -19,6 +19,8 @@
 - 左侧会话最后的删除图标，应该是鼠标悬浮时才显示
 - 现在有高德的MCP服务，有天气查询相关的功能使用，帮我接入，需要将里面的功能进行分类，需要时再调用
 - 将代码链接到新仓库https://github.com/nie-crossroads/travel-guide-agent.git ，原来的github仓库已经删了，将代码提交到新仓库，提交时github的Contributors不能有cursor agent相关的，只能有仓库作者，并将该要求添加到git提交的要求文件中
+- 实现trace追踪，为每个agent的出入口、工具调用增加耗时统计，便于后续判断是哪部分比较慢
+- 把联网搜索的mcp也加入到agent中
 
 ## 技术栈与目录
 
@@ -26,6 +28,7 @@
 - 前端：Vue 3 + Vite + Element Plus + Pinia，代码只放 `Travel/`
 - 密钥只写 `TravelServer/.env`，禁止硬编码；模板见 `.env.example`
 - 高德 MCP：`AMAP_MCP_URL` + `AMAP_MCP_KEY`（百炼 DashScope Key），工具按类别按需调用
+- 联网搜索 MCP：`WEB_SEARCH_MCP_URL`（Key 可复用 `AMAP_MCP_KEY`），仅 `web_search` Agent 按需调用 `bailian_web_search`
 - 模型：`gpt-5.6-terra`，OpenAI 兼容地址 `https://apinebula.ai/v1`
 
 ## 按任务读取的 Skill
@@ -34,9 +37,11 @@
 | --- | --- |
 | 改图、路由、专项 Agent、Compose | [langgraph-planner](.cursor/skills/langgraph-planner/SKILL.md) |
 | 高德 MCP、天气、POI、市内路线 | [amap-mcp](.cursor/skills/amap-mcp/SKILL.md) |
+| 百炼联网搜索 MCP | [web-search-mcp](.cursor/skills/web-search-mcp/SKILL.md) |
 | token 窗口、压缩、检查点 | [memory-compression](.cursor/skills/memory-compression/SKILL.md) |
 | Vue 聊天界面、滚动、会话删除 | [frontend-chat-ui](.cursor/skills/frontend-chat-ui/SKILL.md) |
 | 提交、推送 GitHub | [git-commit](.cursor/skills/git-commit/SKILL.md) |
+| Agent / 工具耗时追踪 | [agent-trace](.cursor/skills/agent-trace/SKILL.md) |
 
 ## 注释约定
 

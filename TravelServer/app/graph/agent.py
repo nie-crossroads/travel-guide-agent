@@ -21,6 +21,7 @@ from app.graph.agents import (
     run_maps_route,
     run_preference,
     run_weather,
+    run_web_search,
 )
 from app.graph.scope import needed_list, needed_set, needs_search
 from app.graph.llm import build_llm
@@ -33,6 +34,7 @@ from app.graph.memory import (
     strip_think,
 )
 from app.graph.state import AgentState
+from app.graph.trace import span, span_sync, traced
 from app.prompts.travel import COMPOSE_CHAT_PROMPT, COMPOSE_PLAN_PROMPT, COMPRESS_PROMPT
 
 _graph = None
@@ -61,64 +63,64 @@ def route_memory(state: AgentState) -> Literal["compress", "preference"]:
     return "preference"
 
 
-def route_after_preference(
-    state: AgentState,
-) -> Literal["destination", "parallel_search", "weather", "maps_route", "budget", "compose"]:
-    """Preference 之后按 needed_agents 走最小路径，不问的专项直接跳过。"""
+_PIPELINE = (
+    "destination",
+    "parallel_search",
+    "weather",
+    "maps_route",
+    "web_search",
+    "budget",
+)
+RouteNext = Literal[
+    "destination",
+    "parallel_search",
+    "weather",
+    "maps_route",
+    "web_search",
+    "budget",
+    "compose",
+]
+
+
+def route_from(state: AgentState, after: str | None = None) -> RouteNext:
+    """从 pipeline 下一跳起，落到本轮还需要的第一个节点。"""
+    names = list(_PIPELINE)
+    if after:
+        names = names[names.index(after) + 1 :]
     needed = needed_set(state)
-    if "destination" in needed:
-        return "destination"
-    if needs_search(state):
-        return "parallel_search"
-    if "weather" in needed:
-        return "weather"
-    if "maps_route" in needed:
-        return "maps_route"
-    if "budget" in needed:
-        return "budget"
+    for name in names:
+        if name == "parallel_search":
+            if needs_search(state):
+                return "parallel_search"
+            continue
+        if name in needed:
+            return name  # type: ignore[return-value]
     return "compose"
 
 
-def route_after_destination(
-    state: AgentState,
-) -> Literal["parallel_search", "weather", "maps_route", "budget", "compose"]:
-    if needs_search(state):
-        return "parallel_search"
-    if "weather" in needed_set(state):
-        return "weather"
-    if "maps_route" in needed_set(state):
-        return "maps_route"
-    if "budget" in needed_set(state):
-        return "budget"
-    return "compose"
+def route_after_preference(state: AgentState) -> RouteNext:
+    """Preference 之后按 needed_agents 走最小路径，不问的专项直接跳过。"""
+    return route_from(state)
 
 
-def route_after_search(
-    state: AgentState,
-) -> Literal["weather", "maps_route", "budget", "compose"]:
-    if "weather" in needed_set(state):
-        return "weather"
-    if "maps_route" in needed_set(state):
-        return "maps_route"
-    if "budget" in needed_set(state):
-        return "budget"
-    return "compose"
+def route_after_destination(state: AgentState) -> RouteNext:
+    return route_from(state, "destination")
 
 
-def route_after_weather(
-    state: AgentState,
-) -> Literal["maps_route", "budget", "compose"]:
-    if "maps_route" in needed_set(state):
-        return "maps_route"
-    if "budget" in needed_set(state):
-        return "budget"
-    return "compose"
+def route_after_search(state: AgentState) -> RouteNext:
+    return route_from(state, "parallel_search")
 
 
-def route_after_maps_route(state: AgentState) -> Literal["budget", "compose"]:
-    if "budget" in needed_set(state):
-        return "budget"
-    return "compose"
+def route_after_weather(state: AgentState) -> RouteNext:
+    return route_from(state, "weather")
+
+
+def route_after_maps_route(state: AgentState) -> RouteNext:
+    return route_from(state, "maps_route")
+
+
+def route_after_web_search(state: AgentState) -> RouteNext:
+    return route_from(state, "web_search")
 
 
 def route_budget(state: AgentState) -> Literal["adjust", "compose"]:
@@ -138,6 +140,7 @@ def route_budget(state: AgentState) -> Literal["adjust", "compose"]:
     return "adjust"
 
 
+@traced("agent", "compress")
 def compress_node(state: AgentState) -> dict:
     """把旧消息压成摘要，并用 RemoveMessage 从 checkpointer 中删掉已压缩内容。"""
     messages = list(state.get("messages") or [])
@@ -157,7 +160,8 @@ def compress_node(state: AgentState) -> dict:
         old_summary=old_summary_block,
         transcript=format_transcript(to_compress),
     )
-    response = _get_compress_llm().invoke([HumanMessage(content=prompt)])
+    with span_sync("llm", "compress"):
+        response = _get_compress_llm().invoke([HumanMessage(content=prompt)])
     new_summary = strip_think(message_text(response))
 
     remove_ops = [
@@ -209,6 +213,11 @@ async def maps_route_node(state: AgentState) -> dict:
     return await run_maps_route(state)
 
 
+async def web_search_node(state: AgentState) -> dict:
+    return await run_web_search(state)
+
+
+@traced("agent", "parallel_search")
 async def parallel_search_node(state: AgentState) -> dict:
     """只跑本轮需要的航班 / 酒店 / 活动；互不依赖时并行以降低等待。"""
     needed = needed_set(state)
@@ -262,6 +271,7 @@ def _plan_context(state: AgentState) -> str:
         "budget": "budget",
         "weather": "weather",
         "maps_route": "maps_route",
+        "web_search": "web_search",
     }
     for agent, field in field_by_agent.items():
         if agent in needed:
@@ -295,6 +305,22 @@ def build_confirm_tail(state: AgentState) -> str:
             "- 「确认，知道了」\n"
             "- 或告诉我还要推荐景点 / 排行程 / 查路线\n"
         )
+    if needed <= {"web_search"}:
+        return (
+            "\n\n---\n\n## 请确认\n\n"
+            f"以上是联网检索结果，没有安排行程。{extra}\n\n"
+            "请直接回复：\n"
+            "- 「确认，知道了」\n"
+            "- 或告诉我还要推荐景点 / 排行程 / 查天气\n"
+        )
+    if needed <= {"destination", "web_search"}:
+        return (
+            "\n\n---\n\n## 请确认\n\n"
+            f"以上是 **{dest}** 的推荐和检索资讯，没有安排行程、酒店和机票。{extra}\n\n"
+            "请直接回复：\n"
+            "- 「确认，就这些」\n"
+            "- 或告诉我还要排几天行程 / 找住宿 / 查交通\n"
+        )
     if needed <= {"maps_route"}:
         return (
             "\n\n---\n\n## 请确认\n\n"
@@ -322,6 +348,8 @@ def build_confirm_tail(state: AgentState) -> str:
         offers.append("查天气")
     if "maps_route" not in needed:
         offers.append("规划市内路线")
+    if "web_search" not in needed:
+        offers.append("联网搜最新资讯")
     days = prefs.get("days") or "未定"
     budget = prefs.get("budget") or 0
     budget_text = f"{int(budget)} 元" if budget else "预算未定"
@@ -354,6 +382,7 @@ def ensure_confirm_tail(text: str, state: AgentState) -> str:
     return body + build_confirm_tail(state)
 
 
+@traced("agent", "compose")
 async def compose_node(state: AgentState) -> dict:
     """按本轮 needed_agents 汇总；没跑专项时走闲聊提示，避免写成完整攻略。"""
     needed = needed_list(state)
@@ -367,10 +396,11 @@ async def compose_node(state: AgentState) -> dict:
     )
     llm_messages = [SystemMessage(content=system), *list(state.get("messages") or [])]
     full = None
-    async for chunk in _get_chat_llm().astream(llm_messages):
-        full = chunk if full is None else full + chunk
-    if full is None:
-        full = await _get_chat_llm().ainvoke(llm_messages)
+    async with span("llm", "compose"):
+        async for chunk in _get_chat_llm().astream(llm_messages):
+            full = chunk if full is None else full + chunk
+        if full is None:
+            full = await _get_chat_llm().ainvoke(llm_messages)
     response = AIMessage(content=ensure_confirm_tail(message_text(full), state))
     token_count = count_state_tokens(state, extra_messages=[response])
     return {
@@ -390,6 +420,7 @@ def build_graph(checkpointer):
     workflow.add_node("destination", destination_node)
     workflow.add_node("weather", weather_node)
     workflow.add_node("maps_route", maps_route_node)
+    workflow.add_node("web_search", web_search_node)
     workflow.add_node("parallel_search", parallel_search_node)
     workflow.add_node("budget", budget_node)
     workflow.add_node("adjust", adjust_node)
@@ -409,6 +440,7 @@ def build_graph(checkpointer):
             "parallel_search": "parallel_search",
             "weather": "weather",
             "maps_route": "maps_route",
+            "web_search": "web_search",
             "budget": "budget",
             "compose": "compose",
         },
@@ -420,6 +452,7 @@ def build_graph(checkpointer):
             "parallel_search": "parallel_search",
             "weather": "weather",
             "maps_route": "maps_route",
+            "web_search": "web_search",
             "budget": "budget",
             "compose": "compose",
         },
@@ -430,6 +463,7 @@ def build_graph(checkpointer):
         {
             "weather": "weather",
             "maps_route": "maps_route",
+            "web_search": "web_search",
             "budget": "budget",
             "compose": "compose",
         },
@@ -439,6 +473,7 @@ def build_graph(checkpointer):
         route_after_weather,
         {
             "maps_route": "maps_route",
+            "web_search": "web_search",
             "budget": "budget",
             "compose": "compose",
         },
@@ -446,6 +481,11 @@ def build_graph(checkpointer):
     workflow.add_conditional_edges(
         "maps_route",
         route_after_maps_route,
+        {"web_search": "web_search", "budget": "budget", "compose": "compose"},
+    )
+    workflow.add_conditional_edges(
+        "web_search",
+        route_after_web_search,
         {"budget": "budget", "compose": "compose"},
     )
     workflow.add_conditional_edges(

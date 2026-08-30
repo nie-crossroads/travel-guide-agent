@@ -5,6 +5,7 @@ from app.graph.amap.catalog import ROUTE_MODE_TOOLS
 from app.graph.amap.client import AmapMcpError, call_amap_category
 from app.graph.amap.parse import first_location
 from app.graph.state import AgentState
+from app.graph.trace import traced
 
 SYSTEM = """你是市内出行路线 Agent。根据用户本轮问题选出起终点和交通方式。
 只输出 JSON：
@@ -26,6 +27,7 @@ async def _geocode(address: str, city: str) -> str:
     return first_location(data)
 
 
+@traced("agent", "maps_route")
 async def run_maps_route(state: AgentState) -> dict:
     """只调 geocode + 对应一种路径规划工具，不查天气、不搜景点。"""
     plan = await invoke_json(SYSTEM, context_block(state))

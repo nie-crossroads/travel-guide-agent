@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.graph.agents.base import context_block, invoke_json
 from app.graph.jsonutil import as_number
 from app.graph.state import AgentState
+from app.graph.trace import traced
 
 SYSTEM = """你是 Flight Agent，给出往返机票比价后的推荐方案（可基于公开经验估算，标明是参考价）。
 只输出 JSON：
@@ -18,6 +19,7 @@ SYSTEM = """你是 Flight Agent，给出往返机票比价后的推荐方案（�
 """
 
 
+@traced("agent", "flight")
 async def run_flight(state: AgentState) -> dict:
     data = await invoke_json(SYSTEM, context_block(state) + _budget_hint(state))
     outbound = as_number((data.get("outbound") or {}).get("price"))
