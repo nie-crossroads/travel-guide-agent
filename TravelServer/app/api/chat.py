@@ -172,6 +172,7 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
     compressed = False
     token_count = 0
     streamed = False
+    streamed_text = ""
     think_filter = ThinkFilter()
     progress_labels = {
         "preference": "偏好 Agent：整理出行约束…",
@@ -208,6 +209,7 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
                 content = think_filter.feed(raw)
                 if content:
                     streamed = True
+                    streamed_text += content
                     yield _sse({"type": "token", "content": content})
             elif kind == "on_chain_end" and node == "compress":
                 started = node_started.pop(run_id, None)
@@ -280,13 +282,13 @@ async def _stream_chat(session_id: str, message: str) -> AsyncIterator[str]:
         if not streamed and last_text:
             yield _sse({"type": "token", "content": last_text})
         elif streamed and last_text:
-            # 流式过程只有模型正文；文末「请确认」是 compose 后补上的，这里补推给前端
-            marker = "\n---\n"
-            idx = last_text.rfind(marker)
-            if idx < 0:
-                idx = last_text.rfind("## 请确认")
-            if idx >= 0:
-                yield _sse({"type": "token", "content": last_text[idx:]})
+            # 流式里可能已带模型自己写的「请确认」；落库文本已裁成一节，这里对齐前端
+            if last_text.startswith(streamed_text):
+                rest = last_text[len(streamed_text) :]
+                if rest:
+                    yield _sse({"type": "token", "content": rest})
+            elif last_text != streamed_text:
+                yield _sse({"type": "replace", "content": last_text})
 
         for chunk in _sse_traces():
             yield chunk

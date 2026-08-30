@@ -61,6 +61,7 @@ export async function streamChat(sessionId, message, handlers = {}) {
       if (!line) continue;
       const payload = JSON.parse(line);
       if (payload.type === "token") handlers.onToken?.(payload.content);
+      if (payload.type === "replace") handlers.onReplace?.(payload.content);
       if (payload.type === "progress") handlers.onProgress?.(payload);
       if (payload.type === "trace") handlers.onTrace?.(payload.span);
       if (payload.type === "compressed") handlers.onCompressed?.(payload);

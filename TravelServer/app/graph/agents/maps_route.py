@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.graph.agents.base import context_block, invoke_json
 from app.graph.amap.catalog import ROUTE_MODE_TOOLS
 from app.graph.amap.client import AmapMcpError, call_amap_category
-from app.graph.amap.parse import first_location
+from app.graph.amap.parse import first_city, first_location, is_lnglat
 from app.graph.state import AgentState
 from app.graph.trace import traced
 
@@ -20,11 +20,14 @@ SYSTEM = """你是市内出行路线 Agent。根据用户本轮问题选出起�
 """
 
 
-async def _geocode(address: str, city: str) -> str:
+async def _geocode(address: str, city: str) -> tuple[str, str]:
+    """返回 (lnglat, city)。坐标解析失败时不要把中文地址传给路径规划。"""
     if not address:
-        return ""
+        return "", city
     data = await call_amap_category("geocode", "maps_geo", {"address": address, "city": city})
-    return first_location(data)
+    loc = first_location(data)
+    resolved_city = first_city(data) or city
+    return loc, resolved_city
 
 
 @traced("agent", "maps_route")
@@ -48,12 +51,37 @@ async def run_maps_route(state: AgentState) -> dict:
             "progress": "路线 Agent：缺少起终点",
         }
     try:
-        origin_loc = await _geocode(origin, city)
-        dest_loc = await _geocode(dest, cityd or city)
-        args = {"origin": origin_loc or origin, "destination": dest_loc or dest}
+        origin_loc, origin_city = await _geocode(origin, city)
+        dest_loc, dest_city = await _geocode(dest, cityd or city)
+        city = origin_city or city
+        cityd = dest_city or cityd or city
+        if not is_lnglat(origin_loc) or not is_lnglat(dest_loc):
+            return {
+                "maps_route": {
+                    "origin": origin,
+                    "destination": dest,
+                    "mode": mode,
+                    "note": "起终点无法解析成经纬度，未调用路径规划，避免高德返回参数错误",
+                },
+                "progress": "路线 Agent：坐标解析失败",
+            }
+        args = {"origin": origin_loc, "destination": dest_loc}
         if tool == "maps_direction_transit_integrated":
+            # 公交接口 city/cityd 必填，且 origin/destination 必须是「经度,纬度」
+            if not city or not cityd:
+                return {
+                    "maps_route": {
+                        "origin": origin,
+                        "destination": dest,
+                        "origin_location": origin_loc,
+                        "destination_location": dest_loc,
+                        "mode": mode,
+                        "note": "公交规划缺少起点或终点城市",
+                    },
+                    "progress": "路线 Agent：缺少城市",
+                }
             args["city"] = city
-            args["cityd"] = cityd or city
+            args["cityd"] = cityd
         payload = await call_amap_category("route", tool, args)
         return {
             "maps_route": {

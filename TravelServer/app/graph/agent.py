@@ -371,14 +371,24 @@ def build_confirm_tail(state: AgentState) -> str:
     )
 
 
+_CONFIRM_MARKERS = (
+    "\n---\n\n## 请确认",
+    "\n## 请确认",
+    "\n### 请确认",
+    "\n#### 请确认",
+    "\n**请确认",
+    "\n请确认",
+)
+
+
 def ensure_confirm_tail(text: str, state: AgentState) -> str:
-    """若模型已在文末写了确认节，先裁掉再统一追加，保证引导永远在最后。"""
+    """模型若仍写了确认节，从最靠前的文末标记裁掉，只保留代码追加的一节。"""
     body = strip_think(text or "").rstrip()
-    for marker in ("\n## 请确认", "\n### 请确认", "\n请确认"):
-        idx = body.rfind(marker)
-        if idx >= 0 and idx > len(body) * 0.35:
-            body = body[:idx].rstrip()
-            break
+    window = int(len(body) * 0.25)
+    cuts = [body.rfind(marker) for marker in _CONFIRM_MARKERS]
+    cuts = [idx for idx in cuts if idx >= window]
+    if cuts:
+        body = body[: min(cuts)].rstrip()
     return body + build_confirm_tail(state)
 
 

@@ -16,7 +16,7 @@ description: >-
 | --- | --- | --- |
 | weather | `maps_weather` | 用户问天气/气温/会不会下雨 |
 | poi | `maps_text_search` / `maps_around_search` / `maps_search_detail` | 目的地/景点推荐时，由 Destination 调用 |
-| geocode | `maps_geo` / `maps_regeocode` / `maps_ip_location` | 路线规划前解析起终点坐标 |
+| geocode | `maps_geo` / `maps_regeocode` / `maps_ip_location` | 路线规划前解析起终点坐标；公交/驾车只传 `经度,纬度`，不能回退成中文地址 |
 | route | 步行/骑行/驾车/公交/测距 | 用户问怎么走、导航、市内路线 |
 | schema | 导航/打车/专属地图唤端 | 路线节点需要唤起 App 时 |
 

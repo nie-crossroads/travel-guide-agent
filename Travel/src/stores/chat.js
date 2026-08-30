@@ -99,6 +99,11 @@ export const useChatStore = defineStore("chat", () => {
           last.content += token;
           agentProgress.value = "";
         },
+        onReplace(content) {
+          const last = messages.value[messages.value.length - 1];
+          if (!last || last.role !== "assistant") return;
+          messages.value[messages.value.length - 1] = { ...last, content };
+        },
         onProgress(payload) {
           agentProgress.value = payload.message || agentProgress.value;
         },
