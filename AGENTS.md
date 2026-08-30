@@ -18,6 +18,7 @@
 - 左侧的会话列表要有能清除的按钮
 - 左侧会话最后的删除图标，应该是鼠标悬浮时才显示
 - 现在有高德的MCP服务，有天气查询相关的功能使用，帮我接入，需要将里面的功能进行分类，需要时再调用
+- 将代码链接到新仓库https://github.com/nie-crossroads/travel-guide-agent.git ，原来的github仓库已经删了，将代码提交到新仓库，提交时github的Contributors不能有cursor agent相关的，只能有仓库作者，并将该要求添加到git提交的要求文件中
 
 ## 技术栈与目录
 
@@ -35,6 +36,7 @@
 | 高德 MCP、天气、POI、市内路线 | [amap-mcp](.cursor/skills/amap-mcp/SKILL.md) |
 | token 窗口、压缩、检查点 | [memory-compression](.cursor/skills/memory-compression/SKILL.md) |
 | Vue 聊天界面、滚动、会话删除 | [frontend-chat-ui](.cursor/skills/frontend-chat-ui/SKILL.md) |
+| 提交、推送 GitHub | [git-commit](.cursor/skills/git-commit/SKILL.md) |
 
 ## 注释约定
 
